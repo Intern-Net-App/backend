@@ -32,3 +32,25 @@ func (ur *UserRepository) FindByID(id string) (*models.User, error) {
 
 	return &user, nil
 }
+
+// Retreive user by Email in Database
+func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*models.User, error) {
+	var user models.User
+	filter := bson.M{"email": email}
+
+	err := r.collection.FindOne(ctx, filter).Decode(&user)
+	if err != nil {
+		if err == mongo.ErrNoDocuments {
+			return nil, nil //User not Found
+		}
+		return nil, err //Error occured
+	}
+
+	return &user, nil
+}
+
+// Create User in Database
+func (r *UserRepository) CreateUser(ctx context.Context, user *models.User) error {
+	_, err := r.collection.InsertOne(ctx, user)
+	return err
+}
