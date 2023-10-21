@@ -1,66 +1,82 @@
-// package main
-
-// import (
-// 	"context"
-// 	"fmt"
-// 	"log"
-// 	"net/http"
-// 	"os"
-
-// 	"github.com/gorilla/mux"
-// 	"go.mongodb.org/mongo-driver/mongo"
-// 	"go.mongodb.org/mongo-driver/mongo/options"
-
-// 	"intern-net/internal/app/auth"
-// 	"intern-net/internal/app/handlers"
-// 	"intern-net/internal/app/repositories"
-// )
-
-// func main() {
-// 	// Set up MongoDB connection
-// 	clientOptions := options.Client().ApplyURI(os.Getenv("MONGO_URI"))
-// 	client, err := mongo.Connect(context.TODO(), clientOptions)
-// 	if err != nil {
-// 		log.Fatal(err)
-// 	}
-// 	defer client.Disconnect(context.TODO())
-
-// 	// Access the MongoDB collection
-// 	collection := client.Database(os.Getenv("MONGODB_NAME")).Collection("users")
-
-// 	// Initialize the user repository with the collection
-// 	userRepo := repositories.NewUserRepository(collection)
-
-// 	// Create a new router
-// 	router := mux.NewRouter()
-
-// 	// Define routes
-
-// 	// Route for user login or signup
-// 	router.HandleFunc("/api/login", handlers.LoginHandler(userRepo)).Methods("POST")
-
-// 	// Protected route - example
-// 	router.Handle("/api/protected", auth.Middleware(http.HandlerFunc(handlers.ProtectedHandler))).Methods("GET")
-
-// 	// Start the HTTP server
-// 	port := 8080
-// 	fmt.Printf("Server is running on :%d\n", port)
-// 	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), router))
-// }
-
 package main
 
 import (
+	"context"
+	"fmt"
 	"intern-net/internal/app/handlers"
+	"intern-net/internal/app/repositories"
+	"intern-net/internal/app/services"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"time"
+
+	"github.com/joho/godotenv"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 func main() {
-	http.HandleFunc("/login", handlers.Login)
-	http.HandleFunc("/welcome", handlers.Welcome)
-	http.HandleFunc("/refresh", handlers.Refresh)
-	http.HandleFunc("/logout", handlers.Logout)
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
 
-	log.Fatal(http.ListenAndServe(":8000", nil))
+	// Setup MongoDB
+	serverAPI := options.ServerAPI(options.ServerAPIVersion1)
+	opts := options.Client().ApplyURI(os.Getenv("MONGODB_URI")).SetServerAPIOptions(serverAPI)
+
+	// Create new client and connect to server
+	client, err := mongo.Connect(context.TODO(), opts)
+
+	if err != nil {
+		panic(err)
+	}
+	defer func() {
+		if err = client.Disconnect(context.TODO()); err != nil {
+			panic(err)
+		}
+	}()
+
+	userCollection := client.Database(os.Getenv("MONGODB_DATABASE")).Collection("users")
+	userRepository := repositories.NewUserRepository(userCollection)
+
+	// Create HTTP Server
+	server := http.Server{
+		Addr: ":8080",
+	}
+
+	// Register handlers and middleware
+	http.Handle("/api/signup", handlers.NewSignupHandler(userRepository))
+	http.Handle("/api/login", handlers.NewLoginHandler(userRepository))
+
+	// Authentication Middleware to protected routes
+	http.Handle("/welcome", services.Authenticate(http.HandlerFunc(handlers.Welcome)))
+
+	// Start the server
+	go func() {
+		log.Println("server listening on :8080")
+		if err := server.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatalf("ListenAndServe: %v", err)
+		}
+	}()
+
+	// Shut server down on interrupt signal
+	stop := make(chan os.Signal, 1) // Change to os.Signal
+	go func() {
+		sig := <-stop
+		fmt.Printf("Received signal: %v\n", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Fatalf("Server shutdown error: %v", err)
+		}
+	}()
+
+	// Wait for interrupt
+	interrupt := make(chan os.Signal, 1)
+	signal.Notify(interrupt, os.Interrupt)
+	<-interrupt
+	stop <- os.Interrupt // Send the interrupt signal to the correct channel
 }
