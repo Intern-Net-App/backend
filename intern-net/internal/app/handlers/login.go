@@ -2,79 +2,69 @@ package handlers
 
 import (
 	"encoding/json"
+	"intern-net/internal/app/models"
+	"intern-net/internal/app/repositories"
+	"intern-net/internal/app/services"
 	"net/http"
-	"os"
-	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
-// Create JWT used to create the signature
-var jwtKey = []byte(os.Getenv("JWT_SECRET"))
-
-var users = map[string]string{
-	"user1": "password1",
-	"user2": "password2",
+type LoginHandler struct {
+	UserRepository *repositories.UserRepository
 }
 
-// Create a struct to read username and password from requestb ody
-type Credentials struct {
-	Password string `json:"password"`
-	Username string `json:"username"`
+func (h *LoginHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		h.Login(w, r)
+	} else {
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
+	}
 }
 
-// Create a struct that will encode to a JWT
-// jwt.RegisteredClaims provide fields like expiry time
-type Claims struct {
-	Username string `json:"username"`
-	jwt.RegisteredClaims
+func NewLoginHandler(userRepo *repositories.UserRepository) *LoginHandler {
+	return &LoginHandler{
+		UserRepository: userRepo,
+	}
 }
 
-func Login(w http.ResponseWriter, r *http.Request) {
-	var creds Credentials
-	// Get the JSON body and decode into credentials
+func (h *LoginHandler) Login(w http.ResponseWriter, r *http.Request) {
+	var creds models.Credentials
+
+	// Decode JSON data from the request body into the Credentials struct
 	err := json.NewDecoder(r.Body).Decode(&creds)
 	if err != nil {
-		// If the structure of the body is wrong, return an HTTP error
-		w.WriteHeader(http.StatusBadRequest)
+		http.Error(w, "Bad Request", http.StatusBadRequest)
 		return
 	}
 
-	// Get the expected password from our in memory map
-	expectedPassword, ok := users[creds.Username]
-
-	// If a password exists for the given user
-	if !ok || expectedPassword != creds.Password {
-		w.WriteHeader(http.StatusUnauthorized)
-		return
-	}
-
-	// Declare expiration time of token
-	expirationTime := time.Now().Add(5 * time.Minute)
-	// Create JWT claims, which includes the username and expiry time
-	claims := &Claims{
-		Username: creds.Username,
-		RegisteredClaims: jwt.RegisteredClaims{
-			// In JWT, the expiry time is expressed as unix milliseconds
-			ExpiresAt: jwt.NewNumericDate(expirationTime),
-		},
-	}
-
-	// Declare the token with the algorithm used for signing, and the claims
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	//Create the JWT String
-	tokenString, err := token.SignedString(jwtKey)
+	// Get user credentials from the database
+	user, err := h.UserRepository.GetUserByEmail(r.Context(), creds.Email)
 	if err != nil {
-		// If there is an error in creating the JWT return an internal server error
-		w.WriteHeader(http.StatusInternalServerError)
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	// Set the client cookie for token as the JWT gneerated
-	// Set the expiry time to thee same as the token itself
-	http.SetCookie(w, &http.Cookie{
-		Name:    "token",
-		Value:   tokenString,
-		Expires: expirationTime,
-	})
+	if user == nil {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Verify the password
+	if !services.VerifyPassword(user.Password, creds.Password) {
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Generate a JWT token for the authenticated user
+	token, err := services.GenerateToken(user.Email, user.Role)
+	if err != nil {
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	// Respond with the JWT token
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+
+	response := map[string]string{"token": token}
+	json.NewEncoder(w).Encode(response)
 }
