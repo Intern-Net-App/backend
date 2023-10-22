@@ -4,13 +4,13 @@ go 1.21.2
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.0.0
+	github.com/joho/godotenv v1.5.1
 	go.mongodb.org/mongo-driver v1.12.1
 	golang.org/x/crypto v0.14.0
 )
 
 require (
 	github.com/golang/snappy v0.0.1 // indirect
-	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/klauspost/compress v1.13.6 // indirect
 	github.com/montanaflynn/stats v0.0.0-20171201202039-1bf9dbcd8cbe // indirect
 	github.com/xdg-go/pbkdf2 v1.0.0 // indirect

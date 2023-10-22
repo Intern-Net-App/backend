@@ -6,6 +6,8 @@ import (
 	"intern-net/internal/app/repositories"
 	"intern-net/internal/app/services"
 	"net/http"
+
+	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 // SignupHandler handles user registration.
@@ -59,6 +61,7 @@ func (h *SignupHandler) Signup(w http.ResponseWriter, r *http.Request) {
 
 	// Create a user based on registration data
 	user := models.User{
+		ID:       primitive.NewObjectID(),
 		Email:    creds.Email,
 		Password: hashedPassword,
 		Role:     "User", // Defaulting to User role
