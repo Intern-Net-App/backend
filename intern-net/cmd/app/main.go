@@ -40,7 +40,9 @@ func main() {
 	}()
 
 	userCollection := client.Database(os.Getenv("MONGODB_DATABASE")).Collection("users")
+	jobCollection := client.Database(os.Getenv("MONGODB_DATABASE")).Collection("linkedin_jobs")
 	userRepository := repositories.NewUserRepository(userCollection)
+	jobRepository := repositories.NewJobRepository(jobCollection)
 
 	// Create HTTP Server
 	server := http.Server{
@@ -53,6 +55,9 @@ func main() {
 
 	// Authentication Middleware to protected routes
 	http.Handle("/welcome", services.Authenticate(http.HandlerFunc(handlers.Welcome)))
+
+	// Display Job postings handlers
+	http.Handle("/api/jobs", handlers.NewJobPostingsHandler(jobRepository))
 
 	// Start the server
 	go func() {
