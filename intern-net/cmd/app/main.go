@@ -12,7 +12,9 @@ import (
 	"os/signal"
 	"time"
 
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
+	"github.com/rs/cors"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 )
@@ -44,21 +46,34 @@ func main() {
 	userRepository := repositories.NewUserRepository(userCollection)
 	jobRepository := repositories.NewJobRepository(jobCollection)
 
-	// Create HTTP Server
-	server := http.Server{
-		Addr: ":8080",
-	}
+	// Create router using Gorilla Mux
+	r := mux.NewRouter()
 
 	// Register handlers and middleware
-	http.Handle("/api/signup", handlers.NewSignupHandler(userRepository))
-	http.Handle("/api/login", handlers.NewLoginHandler(userRepository))
+	r.Handle("/api/signup", handlers.NewSignupHandler(userRepository))
+	r.Handle("/api/login", handlers.NewLoginHandler(userRepository))
 
 	// Authentication Middleware to protected routes
-	http.Handle("/welcome", services.Authenticate(http.HandlerFunc(handlers.Welcome)))
+	r.Handle("/welcome", services.Authenticate(http.HandlerFunc(handlers.Welcome)))
 
 	// Display Job postings handlers
-	http.Handle("/api/jobs", handlers.NewJobPostingsHandler(jobRepository))
+	r.Handle("/api/jobs", handlers.NewJobPostingsHandler(jobRepository))
 
+	// CORS Handler
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"http://localhost:5173"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE"},
+		AllowedHeaders: []string{"Content-Type", "Authorization"},
+	})
+
+	// Attach CORS Middleware to router
+	handler := c.Handler(r)
+
+	// Create HTTP Server
+	server := http.Server{
+		Addr:    ":8080",
+		Handler: handler,
+	}
 	// Start the server
 	go func() {
 		log.Println("server listening on :8080")
